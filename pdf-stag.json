@@ -1,0 +1,49 @@
+{
+    "executionRoleArn": "arn:aws:iam::349676810913:role/ecsTaskExecutionRoleDockerHub",
+    "containerDefinitions": [
+      {
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/pdf-test",
+            "awslogs-region": "eu-central-1",
+            "awslogs-stream-prefix": "ecs"
+          }
+        },
+        "portMappings": [
+          {
+            "hostPort": 0,
+            "protocol": "tcp",
+            "containerPort": 5001
+          }
+        ],
+        "cpu": 0,
+        "environment": [
+          {
+            "name": "ASPNETCORE_ENVIRONMENT",
+            "value": "Staging"
+          }
+        ],
+        "repositoryCredentials": {
+          "credentialsParameter": "arn:aws:secretsmanager:eu-central-1:349676810913:secret:prod/dockerHub-twOoWh"
+        },
+        "mountPoints": [],
+        "memory": 512,
+        "memoryReservation": 256,
+        "volumesFrom": [],
+        "essential": true,
+        "hostname": "pdf.finapps",
+        "dockerLabels": {
+          "env": "test"
+        },
+        "name": "pdf-service"
+      }
+    ],
+    "taskRoleArn": "arn:aws:iam::349676810913:role/ecsTaskExecutionRoleDockerHub",
+    "family": "pdf-test",
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "volumes": [],
+    "placementConstraints": []
+}
