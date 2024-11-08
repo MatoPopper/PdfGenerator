@@ -1,0 +1,66 @@
+image: mcr.microsoft.com/dotnet/sdk:7.0
+
+options:
+    docker: true
+    size: 2x
+
+pipelines:
+    tags:
+        pdf-*:
+            - parallel:
+                  - step:
+                        name: Build - VPDF + DockerHub
+                        script:
+                            - export IMAGE_NAME=$TEAM_NAME/finapps-service:${BITBUCKET_TAG}
+                            - docker build -f ./PdfGenerator/Dockerfile -t $IMAGE_NAME .
+                            - docker login -u $DOCKER_HUB_USER -p $DOCKER_HUB_PASSWORD
+                            - docker push $IMAGE_NAME
+                  - step:
+                        name: Build - Wefund
+                        script:
+                            - export IMAGE_NAME=${TEAM_NAME}/${HUB_PROJECT_WEFUND_PDFGENERATOR}:${BITBUCKET_TAG}
+                            - docker build -f ./PdfGenerator/Dockerfile -t $IMAGE_NAME .
+                            - docker login -u $DOCKER_HUB_USER_WEFUND -p $DOCKER_HUB_PASSWORD_WEFUND
+                            - docker push $IMAGE_NAME
+           
+            - step:
+                name: AWS Deploy - Staging
+                image: atlassian/pipelines-awscli:latest
+                deployment: Staging
+                script:
+                    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-"eu-central-1"} #default is eu-central-1
+                    - export IMAGE_NAME="${TEAM_NAME}/finapps-service:${BITBUCKET_TAG}"
+                    - export ECS_CLUSTER_NAME="${ECS_CLUSTER_NAME}"
+                    - export ECS_SERVICE_NAME="finapps-pdf"
+                    - export ECS_TASK_NAME="pdf-test"
+                    - export TASK_DEFINITION=$(jq --arg image "$IMAGE_NAME" '.containerDefinitions[0].image = "\($image)"' ./pdf-stag.json)
+                    - aws ecs list-clusters | grep "${ECS_CLUSTER_NAME}"
+                    - export TASK_VERSION=$(aws ecs register-task-definition
+                        --cli-input-json "${TASK_DEFINITION}"
+                        | jq --raw-output '.taskDefinition.revision')
+                    - echo "Registered ECS Task Definition:" "${TASK_VERSION}"
+                    - aws ecs list-services --cluster "${ECS_CLUSTER_NAME}"  | grep "${ECS_SERVICE_NAME}" || aws ecs create-service --service-name "${ECS_SERVICE_NAME}" --cluster "${ECS_CLUSTER_NAME}" --task-definition "${ECS_TASK_NAME}" --desired-count 1
+                    - aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_NAME}" --task-definition "${ECS_TASK_NAME}:${TASK_VERSION}"
+            - step:
+                name: AWS Deploy - Production
+                trigger: manual
+                image: atlassian/pipelines-awscli:latest
+                deployment: Production
+                script:
+                    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-"eu-central-1"} #default is eu-central-1
+                    - export IMAGE_NAME="${TEAM_NAME}/finapps-service:${BITBUCKET_TAG}"
+                    - export ECS_CLUSTER_NAME="${ECS_CLUSTER_NAME}"
+                    - export ECS_SERVICE_NAME="finapps-pdf"
+                    - export ECS_TASK_NAME="pdf"
+                    - export TASK_DEFINITION=$(jq --arg image "$IMAGE_NAME" '.containerDefinitions[0].image = "\($image)"' ./pdf-prod.json)
+                    - aws ecs list-clusters | grep "${ECS_CLUSTER_NAME}"
+                    - export TASK_VERSION=$(aws ecs register-task-definition
+                      --cli-input-json "${TASK_DEFINITION}"
+                      | jq --raw-output '.taskDefinition.revision')
+                    - echo "Registered ECS Task Definition:" "${TASK_VERSION}"
+                    - aws ecs list-services --cluster "${ECS_CLUSTER_NAME}"  | grep "${ECS_SERVICE_NAME}" || aws ecs create-service --service-name "${ECS_SERVICE_NAME}" --cluster "${ECS_CLUSTER_NAME}" --task-definition "${ECS_TASK_NAME}" --desired-count 1
+                    - aws ecs update-service --cluster "${ECS_CLUSTER_NAME}" --service "${ECS_SERVICE_NAME}" --task-definition "${ECS_TASK_NAME}:${TASK_VERSION}"               
+definitions:
+  services:
+    docker:
+      memory: 4096
