@@ -7,6 +7,9 @@ using Microsoft.Extensions.DependencyInjection;
 using PuppeteerSharp.Media;
 using PuppeteerSharp;
 using Microsoft.OpenApi.Models;
+using System;
+using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.HttpOverrides;
 
 public class Program
 {
@@ -28,9 +31,16 @@ public class Program
         builder.Services.AddHealthChecks();
         builder.Services.AddSingleton<IPuppeteerSharpService, PuppeteerSharpService>();
 
-        var app = builder.Build();        
+        var app = builder.Build();
 
-        app.UseHttpsRedirection();
+        //    app.UseHttpsRedirection();
+
+        app.UseForwardedHeaders(new ForwardedHeadersOptions
+        {
+            ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+        });
+
+        app.UsePathBase("/");
         app.UseRouting();
 
         app.MapControllers();
@@ -74,33 +84,37 @@ public interface IPuppeteerSharpService
 /// </summary>
 public class PuppeteerSharpService : IPuppeteerSharpService
 {
-    private readonly BrowserFetcher _browserFetcher;
+    private static readonly string? _executablePath;
 
-    public PuppeteerSharpService()
+    
+    static PuppeteerSharpService()
     {
-        _browserFetcher = new BrowserFetcher();
-        // Stiahni Chromium len raz pri vytváraní inštancie
-        _ = _browserFetcher.DownloadAsync().GetAwaiter().GetResult();
+        // Nastav ExecutablePath iba na Linuxe, kde sa Chromium inštaluje do kontajnera
+        if (OperatingSystem.IsLinux())
+        {
+            _executablePath = "/usr/bin/chromium"; // alebo /usr/bin/chromium podľa tvojej distribúcie
+        }
     }
-
     public async Task<byte[]> CreatePdf(PuppeteerSharpRequest pdfRequest)
     {
-        await using var browser = await Puppeteer.LaunchAsync(new LaunchOptions
+        var launchOptions = new LaunchOptions
         {
             Headless = true,
-            Args = ["--no-sandbox"]
-        });
+            Args = new[] { "--no-sandbox" },
+            ExecutablePath = _executablePath // bude null na Windows – Puppeteer si Chromium stiahne sám
+        };
 
+        await using var browser = await Puppeteer.LaunchAsync(launchOptions);
         await using var page = await browser.NewPageAsync();
 
         await page.SetContentAsync(pdfRequest.ContentHtml);
 
-        var options = pdfRequest.PdfOptions ?? new PdfOptions()
+        var options = pdfRequest.PdfOptions ?? new PdfOptions
         {
             Landscape = false,
             DisplayHeaderFooter = false,
             PrintBackground = true,
-            MarginOptions = new MarginOptions()
+            MarginOptions = new MarginOptions
             {
                 Top = "20px",
                 Bottom = "20px",
@@ -112,6 +126,7 @@ public class PuppeteerSharpService : IPuppeteerSharpService
         return await page.PdfDataAsync(options);
     }
 }
+
 
 /// <summary>
 /// Request model
